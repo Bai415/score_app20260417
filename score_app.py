@@ -6,10 +6,9 @@ Created on Fri Apr 17 10:07:32 2026
 """
 
 import streamlit as st
-import openpyxl as px1
-from openpyxl.styles import PatternFill, colors, Font
 import pandas as pd
 from io import BytesIO
+from collections import Counter
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -25,17 +24,14 @@ st.markdown("上传标准答案和学生答卷，系统自动判分并生成分�
 with st.sidebar:
     st.header("⚙️ 评分参数设置")
     
-    # 单选题参数
     st.subheader("单选题")
     single_points = st.number_input("每题分值", value=0.5, step=0.1, key="single_points")
     single_rows = st.text_input("行范围（格式：起始-结束）", value="1-21", key="single_rows")
     
-    # 多选题参数
     st.subheader("多选题")
     multi_points = st.number_input("每题分值", value=0.7, step=0.1, key="multi_points")
     multi_rows = st.text_input("行范围（格式：起始-结束）", value="22-32", key="multi_rows")
     
-    # 判断题参数
     st.subheader("判断题")
     judge_points = st.number_input("每题分值", value=0.3, step=0.1, key="judge_points")
     judge_rows = st.text_input("行范围（格式：起始-结束）", value="33-43", key="judge_rows")
@@ -49,8 +45,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 标准答案")
     std_file = st.file_uploader(
-        "上传标准答案文件（.xlsx）",
-        type=["xlsx"],
+        "上传标准答案文件（.xlsx 或 .xls）",
+        type=["xlsx", "xls"],
         key="std_file"
     )
 
@@ -58,71 +54,109 @@ with col2:
     st.subheader("👨‍🎓 学生答卷")
     student_files = st.file_uploader(
         "上传学生答卷文件（可多选）",
-        type=["xlsx"],
+        type=["xlsx", "xls"],
         accept_multiple_files=True,
         key="student_files"
     )
 
-# ==================== 判分核心函数 ====================
-def parse_row_range(range_str):
-    """解析行范围字符串，如'1-21'返回(1,21)"""
-    start, end = range_str.split('-')
-    return int(start), int(end)
+# ==================== Excel读取函数（使用pandas，指定engine） ====================
+def load_excel_data(file_bytes, file_name):
+    """使用pandas读取Excel文件，自动选择engine"""
+    try:
+        # 根据文件扩展名选择engine
+        if file_name.endswith('.xls'):
+            # 旧版Excel使用xlrd
+            df = pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, engine='xlrd')
+        else:
+            # 新版Excel使用openpyxl，但Streamlit Cloud已安装
+            df = pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, engine='openpyxl')
+        
+        # 填充NaN为空字符串
+        df = df.fillna('')
+        return df
+    except Exception as e:
+        st.error(f"读取文件 {file_name} 失败：{str(e)}")
+        return None
 
-def check_student(ws_std, ws_stu, single_range, multi_range, judge_range, 
+def parse_row_range(range_str):
+    """解析行范围字符串"""
+    try:
+        start, end = range_str.split('-')
+        return int(start), int(end)
+    except:
+        return 1, 21
+
+def check_student(df_std, df_stu, single_range, multi_range, judge_range,
                   single_pts, multi_pts, judge_pts):
-    """
-    对比学生答案与标准答案，返回错题列表和分数
-    """
+    """对比学生答案与标准答案"""
     single_wrong = []
     multi_wrong = []
     judge_wrong = []
     
-    max_row = max(ws_std.max_row, ws_stu.max_row)
-    max_col = max(ws_std.max_column, ws_stu.max_column)
-    
-    # 解析行范围
     s_start, s_end = parse_row_range(single_range)
     m_start, m_end = parse_row_range(multi_range)
     j_start, j_end = parse_row_range(judge_range)
     
-    for i in range(1, max_row + 1):
-        for j in range(1, max_col + 1):
-            cell_std = ws_std.cell(i, j)
-            cell_stu = ws_stu.cell(i, j)
+    # 获取最大行数和列数
+    max_row = max(df_std.shape[0], df_stu.shape[0])
+    max_col = max(df_std.shape[1], df_stu.shape[1])
+    
+    # 扩展DataFrame到相同大小
+    if df_std.shape[0] < max_row:
+        df_std = pd.concat([df_std, pd.DataFrame('', index=range(max_row - df_std.shape[0]), columns=df_std.columns)], ignore_index=True)
+    if df_stu.shape[0] < max_row:
+        df_stu = pd.concat([df_stu, pd.DataFrame('', index=range(max_row - df_stu.shape[0]), columns=df_stu.columns)], ignore_index=True)
+    if df_std.shape[1] < max_col:
+        for _ in range(max_col - df_std.shape[1]):
+            df_std[len(df_std.columns)] = ''
+    if df_stu.shape[1] < max_col:
+        for _ in range(max_col - df_stu.shape[1]):
+            df_stu[len(df_stu.columns)] = ''
+    
+    for i in range(max_row):
+        excel_row = i + 1  # Excel行号从1开始
+        
+        for j in range(max_col):
+            std_val = str(df_std.iloc[i, j]) if df_std.iloc[i, j] != '' else ''
+            stu_val = str(df_stu.iloc[i, j]) if df_stu.iloc[i, j] != '' else ''
             
-            if cell_stu.value != cell_std.value:
-                # 标记错误（仅当需要保存时才标记，Web版可选）
-                
+            if std_val != stu_val and std_val != '':
                 # 根据行号判断题型
-                if s_start <= i <= s_end:          # 单选题区域
-                    title_cell = ws_std.cell(i-1, j)
-                    try:
-                        q_num = int(title_cell.value)
-                        if 1 <= q_num <= 100:
-                            single_wrong.append(q_num)
-                    except:
-                        pass
-                elif m_start <= i <= m_end:        # 多选题区域
-                    title_cell = ws_std.cell(i-1, j)
-                    try:
-                        q_num = int(title_cell.value)
-                        if 1 <= q_num <= 50:
-                            multi_wrong.append(q_num)
-                    except:
-                        pass
-                elif j_start <= i <= j_end:        # 判断题区域
-                    title_cell = ws_std.cell(i-1, j)
-                    try:
-                        q_num = int(title_cell.value)
-                        if 1 <= q_num <= 50:
-                            judge_wrong.append(q_num)
-                    except:
-                        pass
+                if s_start <= excel_row <= s_end:
+                    # 从上一行获取题号
+                    if i > 0:
+                        title_val = df_std.iloc[i-1, j]
+                        try:
+                            if title_val != '':
+                                q_num = int(float(title_val))
+                                if 1 <= q_num <= 100 and q_num not in single_wrong:
+                                    single_wrong.append(q_num)
+                        except:
+                            pass
+                elif m_start <= excel_row <= m_end:
+                    if i > 0:
+                        title_val = df_std.iloc[i-1, j]
+                        try:
+                            if title_val != '':
+                                q_num = int(float(title_val))
+                                if 1 <= q_num <= 50 and q_num not in multi_wrong:
+                                    multi_wrong.append(q_num)
+                        except:
+                            pass
+                elif j_start <= excel_row <= j_end:
+                    if i > 0:
+                        title_val = df_std.iloc[i-1, j]
+                        try:
+                            if title_val != '':
+                                q_num = int(float(title_val))
+                                if 1 <= q_num <= 50 and q_num not in judge_wrong:
+                                    judge_wrong.append(q_num)
+                        except:
+                            pass
     
     # 计算总分
-    score = 100 - len(single_wrong)*single_pts - len(multi_wrong)*multi_pts - len(judge_wrong)*judge_pts
-    return single_wrong, multi_wrong, judge_wrong, score
+    score = 100 - len(single_wrong) * single_pts - len(multi_wrong) * multi_pts - len(judge_wrong) * judge_pts
+    return single_wrong, multi_wrong, judge_wrong, max(0, score)
 
 # ==================== 执行判分 ====================
 if std_file and student_files:
@@ -130,16 +164,16 @@ if std_file and student_files:
         with st.spinner("判分进行中，请稍候..."):
             try:
                 # 加载标准答案
-                wb_std = px1.load_workbook(BytesIO(std_file.read()))
-                ws_std = wb_std['Sheet1']
+                std_df = load_excel_data(std_file.read(), std_file.name)
+                if std_df is None:
+                    st.error("标准答案文件读取失败")
+                    st.stop()
                 
-                # 存储所有学生结果
                 results = []
-                all_single_wrong = []  # 用于统计群体错题
+                all_single_wrong = []
                 all_multi_wrong = []
                 all_judge_wrong = []
                 
-                # 获取参数
                 single_pts = st.session_state.single_points
                 multi_pts = st.session_state.multi_points
                 judge_pts = st.session_state.judge_points
@@ -147,18 +181,21 @@ if std_file and student_files:
                 multi_range = st.session_state.multi_rows
                 judge_range = st.session_state.judge_rows
                 
-                # 逐个处理学生文件
-                for stu_file in student_files:
-                    wb_stu = px1.load_workbook(BytesIO(stu_file.read()))
-                    ws_stu = wb_stu['Sheet1']
+                progress_bar = st.progress(0)
+                
+                for idx, stu_file in enumerate(student_files):
+                    stu_df = load_excel_data(stu_file.read(), stu_file.name)
+                    
+                    if stu_df is None:
+                        st.warning(f"跳过无法读取的文件：{stu_file.name}")
+                        continue
                     
                     single_wrong, multi_wrong, judge_wrong, score = check_student(
-                        ws_std, ws_stu, single_range, multi_range, judge_range,
+                        std_df, stu_df, single_range, multi_range, judge_range,
                         single_pts, multi_pts, judge_pts
                     )
                     
-                    # 提取文件名（不含扩展名）
-                    name = stu_file.name.replace('.xlsx', '')
+                    name = stu_file.name.replace('.xlsx', '').replace('.xls', '')
                     
                     results.append({
                         "姓名": name,
@@ -174,11 +211,16 @@ if std_file and student_files:
                     all_single_wrong.extend(single_wrong)
                     all_multi_wrong.extend(multi_wrong)
                     all_judge_wrong.extend(judge_wrong)
+                    
+                    progress_bar.progress((idx + 1) / len(student_files))
                 
-                # ==================== 显示结果 ====================
                 st.success(f"✅ 判分完成！共处理 {len(results)} 名学生")
                 
-                # 1. 成绩汇总表格
+                if len(results) == 0:
+                    st.warning("没有成功处理任何学生文件")
+                    st.stop()
+                
+                # 显示成绩汇总表
                 st.subheader("📋 成绩汇总表")
                 df_results = pd.DataFrame([
                     {k: v for k, v in r.items() if k not in ['单选错题号', '多选错题号', '判断错题号']}
@@ -186,7 +228,7 @@ if std_file and student_files:
                 ])
                 st.dataframe(df_results, use_container_width=True)
                 
-                # 2. 详细错题报告
+                # 详细错题报告
                 st.subheader("📝 详细错题报告")
                 for r in results:
                     with st.expander(f"{r['姓名']} - 总分：{r['总分']}分"):
@@ -204,13 +246,11 @@ if std_file and student_files:
                             if r['判断错题号']:
                                 st.write(f"错题号：{', '.join(map(str, sorted(r['判断错题号'])))}")
                 
-                # 3. 群体错题分析（错误率超过50%的题目）
+                # 群体错题分析
                 if len(results) > 1:
                     st.subheader("📊 群体错题分析")
                     threshold = len(results) / 2
                     
-                    # 统计每道题的错误次数
-                    from collections import Counter
                     single_counter = Counter(all_single_wrong)
                     multi_counter = Counter(all_multi_wrong)
                     judge_counter = Counter(all_judge_wrong)
@@ -230,7 +270,7 @@ if std_file and student_files:
                     else:
                         st.write("✅ 所有题目错误率均未超过50%")
                 
-                # 4. 下载报告（可选）
+                # 下载报告
                 st.subheader("💾 下载报告")
                 report_text = ""
                 for idx, r in enumerate(results, 1):
@@ -257,11 +297,11 @@ if std_file and student_files:
                 
             except Exception as e:
                 st.error(f"❌ 处理过程中出错：{str(e)}")
-                st.info("请检查Excel文件格式是否正确（需要包含'Sheet1'工作表）")
+                import traceback
+                st.code(traceback.format_exc())
 
 else:
     st.info("👈 请先在左侧上传标准答案和学生答卷文件")
 
-# ==================== 页脚 ====================
 st.divider()
 st.caption("试卷自动判分系统 | 基于Streamlit构建")
