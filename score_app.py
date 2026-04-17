@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Apr 17 10:07:32 2026
-
-@author: Lenovo
-"""
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -59,19 +52,14 @@ with col2:
         key="student_files"
     )
 
-# ==================== Excel读取函数（使用pandas，指定engine） ====================
+# ==================== Excel读取函数 ====================
 def load_excel_data(file_bytes, file_name):
-    """使用pandas读取Excel文件，自动选择engine"""
+    """使用pandas读取Excel文件"""
     try:
-        # 根据文件扩展名选择engine
         if file_name.endswith('.xls'):
-            # 旧版Excel使用xlrd
             df = pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, engine='xlrd')
         else:
-            # 新版Excel使用openpyxl，但Streamlit Cloud已安装
             df = pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, engine='openpyxl')
-        
-        # 填充NaN为空字符串
         df = df.fillna('')
         return df
     except Exception as e:
@@ -97,34 +85,24 @@ def check_student(df_std, df_stu, single_range, multi_range, judge_range,
     m_start, m_end = parse_row_range(multi_range)
     j_start, j_end = parse_row_range(judge_range)
     
-    # 获取最大行数和列数
     max_row = max(df_std.shape[0], df_stu.shape[0])
     max_col = max(df_std.shape[1], df_stu.shape[1])
     
-    # 扩展DataFrame到相同大小
-    if df_std.shape[0] < max_row:
-        df_std = pd.concat([df_std, pd.DataFrame('', index=range(max_row - df_std.shape[0]), columns=df_std.columns)], ignore_index=True)
-    if df_stu.shape[0] < max_row:
-        df_stu = pd.concat([df_stu, pd.DataFrame('', index=range(max_row - df_stu.shape[0]), columns=df_stu.columns)], ignore_index=True)
-    if df_std.shape[1] < max_col:
-        for _ in range(max_col - df_std.shape[1]):
-            df_std[len(df_std.columns)] = ''
-    if df_stu.shape[1] < max_col:
-        for _ in range(max_col - df_stu.shape[1]):
-            df_stu[len(df_stu.columns)] = ''
-    
     for i in range(max_row):
-        excel_row = i + 1  # Excel行号从1开始
+        excel_row = i + 1
         
         for j in range(max_col):
-            std_val = str(df_std.iloc[i, j]) if df_std.iloc[i, j] != '' else ''
-            stu_val = str(df_stu.iloc[i, j]) if df_stu.iloc[i, j] != '' else ''
+            std_val = ""
+            stu_val = ""
+            
+            if i < df_std.shape[0] and j < df_std.shape[1]:
+                std_val = str(df_std.iloc[i, j]) if df_std.iloc[i, j] != '' else ''
+            if i < df_stu.shape[0] and j < df_stu.shape[1]:
+                stu_val = str(df_stu.iloc[i, j]) if df_stu.iloc[i, j] != '' else ''
             
             if std_val != stu_val and std_val != '':
-                # 根据行号判断题型
                 if s_start <= excel_row <= s_end:
-                    # 从上一行获取题号
-                    if i > 0:
+                    if i > 0 and j < df_std.shape[1]:
                         title_val = df_std.iloc[i-1, j]
                         try:
                             if title_val != '':
@@ -134,7 +112,7 @@ def check_student(df_std, df_stu, single_range, multi_range, judge_range,
                         except:
                             pass
                 elif m_start <= excel_row <= m_end:
-                    if i > 0:
+                    if i > 0 and j < df_std.shape[1]:
                         title_val = df_std.iloc[i-1, j]
                         try:
                             if title_val != '':
@@ -144,7 +122,7 @@ def check_student(df_std, df_stu, single_range, multi_range, judge_range,
                         except:
                             pass
                 elif j_start <= excel_row <= j_end:
-                    if i > 0:
+                    if i > 0 and j < df_std.shape[1]:
                         title_val = df_std.iloc[i-1, j]
                         try:
                             if title_val != '':
@@ -154,7 +132,6 @@ def check_student(df_std, df_stu, single_range, multi_range, judge_range,
                         except:
                             pass
     
-    # 计算总分
     score = 100 - len(single_wrong) * single_pts - len(multi_wrong) * multi_pts - len(judge_wrong) * judge_pts
     return single_wrong, multi_wrong, judge_wrong, max(0, score)
 
@@ -163,7 +140,6 @@ if std_file and student_files:
     if st.button("🚀 开始判分", type="primary"):
         with st.spinner("判分进行中，请稍候..."):
             try:
-                # 加载标准答案
                 std_df = load_excel_data(std_file.read(), std_file.name)
                 if std_df is None:
                     st.error("标准答案文件读取失败")
@@ -220,7 +196,7 @@ if std_file and student_files:
                     st.warning("没有成功处理任何学生文件")
                     st.stop()
                 
-                # 显示成绩汇总表
+                # 成绩汇总表
                 st.subheader("📋 成绩汇总表")
                 df_results = pd.DataFrame([
                     {k: v for k, v in r.items() if k not in ['单选错题号', '多选错题号', '判断错题号']}
@@ -246,7 +222,7 @@ if std_file and student_files:
                             if r['判断错题号']:
                                 st.write(f"错题号：{', '.join(map(str, sorted(r['判断错题号'])))}")
                 
-                # 群体错题分析
+                # 群体错题分析（网页显示）
                 if len(results) > 1:
                     st.subheader("📊 群体错题分析")
                     threshold = len(results) / 2
@@ -270,23 +246,58 @@ if std_file and student_files:
                     else:
                         st.write("✅ 所有题目错误率均未超过50%")
                 
-                # 下载报告
+                # ==================== 下载报告（修复版） ====================
                 st.subheader("💾 下载报告")
-                report_text = ""
+                
+                report_lines = []
+                
                 for idx, r in enumerate(results, 1):
-                    report_text += f"{idx}、{r['姓名']}总分：{r['总分']}分，"
-                    report_text += f"单选错误个数：{r['单选错误数']}"
+                    line = f"{idx}、{r['姓名']}总分：{r['总分']}分，"
+                    line += f"单选错误个数：{r['单选错误数']}"
                     if r['单选错题号']:
-                        report_text += f"（题号：{', '.join(map(str, sorted(r['单选错题号'])))})"
-                    report_text += "；"
-                    report_text += f"多选错误个数：{r['多选错误数']}"
+                        line += f"（题号：{', '.join(map(str, sorted(r['单选错题号'])))})"
+                    line += "；"
+                    line += f"多选错误个数：{r['多选错误数']}"
                     if r['多选错题号']:
-                        report_text += f"（题号：{', '.join(map(str, sorted(r['多选错题号'])))})"
-                    report_text += "；"
-                    report_text += f"判断错误个数：{r['判断错误数']}"
+                        line += f"（题号：{', '.join(map(str, sorted(r['多选错题号'])))})"
+                    line += "；"
+                    line += f"判断错误个数：{r['判断错误数']}"
                     if r['判断错题号']:
-                        report_text += f"（题号：{', '.join(map(str, sorted(r['判断错题号'])))})"
-                    report_text += "。\n"
+                        line += f"（题号：{', '.join(map(str, sorted(r['判断错题号'])))})"
+                    line += "。"
+                    report_lines.append(line)
+                
+                # 添加群体错题分析到报告
+                if len(results) > 1:
+                    report_lines.append("")  # 空行
+                    report_lines.append("【错误率超过50%的题目】")
+                    
+                    single_counter = Counter(all_single_wrong)
+                    multi_counter = Counter(all_multi_wrong)
+                    judge_counter = Counter(all_judge_wrong)
+                    threshold = len(results) / 2
+                    
+                    single_over = [q for q, cnt in single_counter.items() if cnt > threshold]
+                    multi_over = [q for q, cnt in multi_counter.items() if cnt > threshold]
+                    judge_over = [q for q, cnt in judge_counter.items() if cnt > threshold]
+                    
+                    has_over = False
+                    if single_over:
+                        report_lines.append(f"单选题：{', '.join(map(str, sorted(single_over)))}")
+                        has_over = True
+                    if multi_over:
+                        report_lines.append(f"多选题：{', '.join(map(str, sorted(multi_over)))}")
+                        has_over = True
+                    if judge_over:
+                        report_lines.append(f"判断题：{', '.join(map(str, sorted(judge_over)))}")
+                        has_over = True
+                    if not has_over:
+                        report_lines.append("无")
+                else:
+                    report_lines.append("")
+                    report_lines.append("【错误率超过50%的题目】需要至少2名学生才能统计")
+                
+                report_text = "\n".join(report_lines)
                 
                 st.download_button(
                     label="📥 下载成绩报告（TXT格式）",
