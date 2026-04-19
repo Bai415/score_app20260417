@@ -264,9 +264,9 @@ if std_file and student_files:
                         if single_over:
                             st.write(f"🔴 单选题：{', '.join(map(str, sorted(single_over)))}")
                         if multi_over:
-                            st.write(f"🟠 多选题：{', '.join(map(str, sorted(multi_over)))}")
+                            st.write(f"🔴 多选题：{', '.join(map(str, sorted(multi_over)))}")
                         if judge_over:
-                            st.write(f"🟡 判断题：{', '.join(map(str, sorted(judge_over)))}")
+                            st.write(f"🔴 判断题：{', '.join(map(str, sorted(judge_over)))}")
                     else:
                         st.write("✅ 所有题目错误率均未超过50%")
                 
@@ -294,12 +294,12 @@ if std_file and student_files:
                     report_text += f"{idx}、{r['姓名']}总分：{r['总分']}分，"
                     report_text += f"单选错误个数：{single_str}；"
                     report_text += f"多选错误个数：{multi_str}；"
-                    report_text += f"判断错误个数：{judge_str}。\n"  # 每个学生结束后换行
+                    report_text += f"判断错误个数：{judge_str}。\r\n"  # 使用 Windows 换行符 \r\n
                     
                     
                     
                 # 所有考生结束后换行并空一行
-                report_text += "\n"  # 空一行
+                report_text += "\r\n"  # 空一行（Windows格式）
                
                 # 写入错误率超过50%的题目汇总（使用之前已计算的统计结果）
                 if len(results) > 1:
