@@ -289,25 +289,36 @@ if std_file and student_files:
                 judge_str = f"{r['判断错误数']}"
                 if r['判断错题号']:
                     judge_str += f"（题号：{', '.join(map(str, sorted(r['判断错题号'])))})"
+                
+                
+                report_text += f"{idx}、{r['姓名']}总分：{r['总分']}分，"
+                report_text += f"单选错误个数：{single_str}；"
+                report_text += f"多选错误个数：{multi_str}；"
+                report_text += f"判断错误个数：{judge_str}。\n"  # 每个学生结束后换行
+                    
+                    
+                    
                 # 所有考生结束后换行并空一行
                 report_text += "\n"  # 空一行
                
                 # 写入错误率超过50%的题目汇总（使用之前已计算的统计结果）
-                over_parts = []
-                if 'single_over' in locals() and single_over:
-                    over_parts.append("单选题" + "、".join(str(i) for i in sorted(single_over)))
-                if 'multi_over' in locals() and multi_over:
-                    over_parts.append("多选题" + "、".join(str(i) for i in sorted(multi_over)))
-                if 'judge_over' in locals() and judge_over:
-                    over_parts.append("判断题" + "、".join(str(i) for i in sorted(judge_over)))
-                    
-                if over_parts:
-                    report_text += "错误率超过50%的题目：" + "；".join(over_parts) + "。"
+                if len(results) > 1:
+                  # 使用前面群体错题分析中已经计算好的变量            
+                   over_parts = []
+                   if single_over:
+                       over_parts.append("单选题" + "、".join(str(i) for i in sorted(single_over)))
+                   if multi_over:
+                       over_parts.append("多选题" + "、".join(str(i) for i in sorted(multi_over)))
+                   if judge_over:
+                       over_parts.append("判断题" + "、".join(str(i) for i in sorted(judge_over)))
+    
+                   if over_parts:
+                       report_text += "错误率超过50%的题目：" + "；".join(over_parts) + "。"
+                   else:
+                       report_text += "没有错误率超过50%的题目。"
                 else:
-                    if len(results) > 1:
-                        report_text += "没有错误率超过50%的题目。"
-                    else:
-                        report_text += "（只有一名学生，无法统计错误率超过50%的题目）"
+                     # 只有一名学生时，不统计错误率
+                     report_text += "（只有一名学生，无法统计错误率超过50%的题目）"
                
                 
                
